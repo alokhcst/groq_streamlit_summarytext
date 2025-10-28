@@ -1,10 +1,22 @@
 import streamlit as st
 from typing import Generator
 from groq import Groq
-import speech_recognition as sr
 import tempfile
 import os
 import io
+import sys
+
+# Handle aifc import issue for SpeechRecognition (required in some Python versions)
+try:
+    import aifc
+except ImportError:
+    # Add a minimal stub module to sys.modules
+    import types
+    aifc_module = types.ModuleType('aifc')
+    sys.modules['aifc'] = aifc_module
+
+# Now import speech_recognition
+import speech_recognition as sr
 
 st.set_page_config(page_icon="🎤", layout="wide",
                    page_title="Voice Summary with Groq!")
