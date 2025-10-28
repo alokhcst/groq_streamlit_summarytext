@@ -1,4 +1,3 @@
 groq
 streamlit>=1.29.0
-SpeechRecognition>=3.10.0
 openai-whisper

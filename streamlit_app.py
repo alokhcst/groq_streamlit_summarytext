@@ -3,20 +3,6 @@ from typing import Generator
 from groq import Groq
 import tempfile
 import os
-import io
-import sys
-
-# Handle aifc import issue for SpeechRecognition (required in some Python versions)
-try:
-    import aifc
-except ImportError:
-    # Add a minimal stub module to sys.modules
-    import types
-    aifc_module = types.ModuleType('aifc')
-    sys.modules['aifc'] = aifc_module
-
-# Now import speech_recognition
-import speech_recognition as sr
 
 st.set_page_config(page_icon="🎤", layout="wide",
                    page_title="Voice Summary with Groq!")
@@ -80,58 +66,32 @@ with col2:
 
 
 def transcribe_audio(audio_bytes, file_extension='webm'):
-    """Transcribe audio bytes to text using OpenAI Whisper (works without FFmpeg)."""
+    """Transcribe audio bytes to text using OpenAI Whisper (NO FFmpeg required)."""
     tmp_file_path = None
     
     try:
+        # Check if Whisper is installed
+        try:
+            import whisper
+        except ImportError:
+            return "Error: OpenAI Whisper is not installed. Please run: pip install openai-whisper"
+        
         # Save audio to temporary file
         with tempfile.NamedTemporaryFile(delete=False, suffix=f".{file_extension}") as tmp_file:
             tmp_file.write(audio_bytes)
             tmp_file_path = tmp_file.name
         
-        # Use OpenAI Whisper for transcription (works with WebM and many other formats)
-        try:
-            import whisper
-            
-            # Load Whisper model (base model is good balance of speed and accuracy)
+        # Load Whisper model (base model is good balance of speed and accuracy)
+        with st.spinner("Loading Whisper model... (first time only)"):
             model = whisper.load_model("base")
-            
-            # Transcribe the audio
+        
+        # Transcribe the audio
+        with st.spinner("Transcribing audio..."):
             result = model.transcribe(tmp_file_path)
             text = result["text"]
-            
-            return text
-            
-        except ImportError:
-            # Fallback to Google Speech Recognition if Whisper not available
-            st.info("Using Google Speech Recognition (install whisper for better results)")
-            
-            # Try to convert to WAV if needed
-            wav_path = tmp_file_path
-            if file_extension != 'wav':
-                try:
-                    from pydub import AudioSegment
-                    audio = AudioSegment.from_file(tmp_file_path)
-                    wav_path = tmp_file_path.replace(f".{file_extension}", ".wav")
-                    audio.export(wav_path, format="wav")
-                    if os.path.exists(tmp_file_path):
-                        os.unlink(tmp_file_path)
-                except Exception as conv_error:
-                    return f"Error during audio conversion: {str(conv_error)}\nTip: Install whisper (pip install openai-whisper) for better WebM support."
-            
-            # Use Google Speech Recognition
-            recognizer = sr.Recognizer()
-            with sr.AudioFile(wav_path) as source:
-                recognizer.adjust_for_ambient_noise(source, duration=0.5)
-                audio_data = recognizer.record(source)
-            
-            text = recognizer.recognize_google(audio_data)
-            return text
         
-    except sr.UnknownValueError:
-        return "Could not understand audio - audio might be too quiet or unclear"
-    except sr.RequestError as e:
-        return f"Speech recognition service error: {str(e)}"
+        return text
+        
     except Exception as e:
         return f"Error during transcription: {str(e)}"
     finally:
@@ -247,26 +207,28 @@ if audio_input:
                 st.markdown("""
                 ### Common Issues and Solutions:
                 
-                1. **OpenAI Whisper not installed** (recommended):
+                1. **OpenAI Whisper not installed**:
                    ```bash
                    pip install openai-whisper
                    ```
-                   - Works without FFmpeg
-                   - Supports WebM and many audio formats
-                   - First run downloads model (~140 MB)
+                   - No FFmpeg required!
+                   - Works with WebM, MP3, WAV, and many other formats
+                   - First run downloads base model (~140 MB)
                 
-                2. **FFmpeg not installed** (only needed for Google Speech Recognition fallback):
-                   - Windows: Download from https://ffmpeg.org/download.html or run `choco install ffmpeg`
-                   - Add FFmpeg to your system PATH
-                   - Restart your terminal after installation
-                
-                3. **Audio too quiet or unclear**:
+                2. **Audio too quiet or unclear**:
                    - Speak clearly and loudly
                    - Record in a quiet environment
                    - Check your microphone settings
+                   - Ensure good microphone input levels
                 
-                4. **Check your internet connection** (for Google Speech Recognition fallback):
-                   - Google Speech Recognition requires internet access
+                3. **Slow transcription**:
+                   - First run is slow (model download)
+                   - Subsequent runs are much faster
+                   - Model is cached after first use
+                
+                4. **Memory issues**:
+                   - Base model is optimized for accuracy/speed balance
+                   - For faster processing, you can use "tiny" model
                 """)
     else:
         st.error("Error: Could not read audio bytes")
