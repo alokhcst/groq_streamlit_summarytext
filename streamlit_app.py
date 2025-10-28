@@ -110,6 +110,52 @@ def generate_chat_responses(chat_completion) -> Generator[str, None, None]:
             yield chunk.choices[0].delta.content
 
 
+def get_summary_from_text(text):
+    """Get summary from text input using Groq."""
+    # Create summary prompt
+    summary_prompt = get_summary_prompt(text)
+    
+    # Add user message to chat
+    st.session_state.messages.append({
+        "role": "user",
+        "content": text
+    })
+    
+    # Display user message
+    with st.chat_message("user", avatar='👤'):
+        st.markdown(text)
+    
+    # Fetch response from Groq API
+    try:
+        messages = [
+            {
+                "role": "user",
+                "content": summary_prompt
+            }
+        ]
+        
+        chat_completion = client.chat.completions.create(
+            model=model_option,
+            messages=messages,
+            max_tokens=max_tokens,
+            stream=True
+        )
+        
+        # Stream the summary response
+        with st.chat_message("assistant", avatar="🤖"):
+            chat_responses_generator = generate_chat_responses(chat_completion)
+            full_response = st.write_stream(chat_responses_generator)
+            
+            # Add summary to messages
+            st.session_state.messages.append({
+                "role": "assistant",
+                "content": full_response
+            })
+            
+    except Exception as e:
+        st.error(f"Error generating summary: {e}", icon="🚨")
+
+
 def get_summary_prompt(transcribed_text):
     """Create a prompt for Groq to summarize in 4 points."""
     prompt = f"""Please summarize the following text in exactly 4 key points:
@@ -125,113 +171,95 @@ if st.session_state.transcribed_text:
     st.markdown("### 📝 Transcribed Text")
     st.text_area("Your speech:", st.session_state.transcribed_text, disabled=True, height=150)
 
-# Main audio recording interface
-st.markdown("### 🎤 Record Your Voice")
+# Create tabs for different input methods
+tab1, tab2 = st.tabs(["🎤 Voice Input", "⌨️ Text Input"])
 
-# Audio input for microphone recording
-audio_input = st.audio_input(
-    "Click to record your voice for summary",
-    key="audio_input"
-)
-file_extension = 'webm'  # audio_input returns webm format (opus codec)
-
-if audio_input:
-    st.success("✅ Audio recorded! Processing...")
+with tab1:
+    st.markdown("### 🎤 Record Your Voice")
     
-    # Get audio bytes - handle both UploadedFile and bytes
-    try:
-        if hasattr(audio_input, 'read'):
-            audio_bytes = audio_input.read()
-        else:
-            audio_bytes = audio_input
-    except Exception as e:
-        st.error(f"Error reading audio: {e}", icon="🚨")
-        audio_bytes = None
+    # Audio input for microphone recording
+    audio_input = st.audio_input(
+        "Click to record your voice for summary",
+        key="audio_input"
+    )
+    file_extension = 'webm'  # audio_input returns webm format (opus codec)
     
-    if audio_bytes:
-        # Transcribe the audio
-        transcribed_text = transcribe_audio(audio_bytes, file_extension)
+    if audio_input:
+        st.success("✅ Audio recorded! Processing...")
         
-        # Process successful transcription
-        if transcribed_text and "Could not understand" not in transcribed_text and "Error" not in transcribed_text:
-            st.session_state.transcribed_text = transcribed_text
+        # Get audio bytes - handle both UploadedFile and bytes
+        try:
+            if hasattr(audio_input, 'read'):
+                audio_bytes = audio_input.read()
+            else:
+                audio_bytes = audio_input
+        except Exception as e:
+            st.error(f"Error reading audio: {e}", icon="🚨")
+            audio_bytes = None
+        
+        if audio_bytes:
+            # Transcribe the audio
+            transcribed_text = transcribe_audio(audio_bytes, file_extension)
             
-            # Create summary prompt
-            summary_prompt = get_summary_prompt(transcribed_text)
-            
-            # Add user message to chat
-            st.session_state.messages.append({
-                "role": "user",
-                "content": f"Audio transcription: {transcribed_text}"
-            })
-            
-            # Display transcription in chat
-            with st.chat_message("user", avatar='👤'):
-                st.markdown(f"**Transcribed:** {transcribed_text}")
-            
-            # Fetch response from Groq API for summary
-            try:
-                messages = [
-                    {
-                        "role": "user",
-                        "content": summary_prompt
-                    }
-                ]
+            # Process successful transcription
+            if transcribed_text and "Could not understand" not in transcribed_text and "Error" not in transcribed_text:
+                st.session_state.transcribed_text = transcribed_text
                 
-                chat_completion = client.chat.completions.create(
-                    model=model_option,
-                    messages=messages,
-                    max_tokens=max_tokens,
-                    stream=True
-                )
+                # Use the helper function to get summary
+                get_summary_from_text(transcribed_text)
                 
-                # Stream the summary response
-                with st.chat_message("assistant", avatar="🤖"):
-                    chat_responses_generator = generate_chat_responses(chat_completion)
-                    full_response = st.write_stream(chat_responses_generator)
+            else:
+                st.error("❌ Transcription failed", icon="🚨")
+                st.error(f"Error details: {transcribed_text}")
+                
+                # Show helpful installation tips
+                with st.expander("🔧 Troubleshooting Tips"):
+                    st.markdown("""
+                    ### Common Issues and Solutions:
                     
-                    # Add summary to messages
-                    st.session_state.messages.append({
-                        "role": "assistant",
-                        "content": full_response
-                    })
+                    1. **OpenAI Whisper not installed**:
+                       ```bash
+                       pip install openai-whisper
+                       ```
+                       - No FFmpeg required!
+                       - Works with WebM, MP3, WAV, and many other formats
+                       - First run downloads base model (~140 MB)
                     
-            except Exception as e:
-                st.error(f"Error generating summary: {e}", icon="🚨")
+                    2. **Audio too quiet or unclear**:
+                       - Speak clearly and loudly
+                       - Record in a quiet environment
+                       - Check your microphone settings
+                       - Ensure good microphone input levels
+                    
+                    3. **Slow transcription**:
+                       - First run is slow (model download)
+                       - Subsequent runs are much faster
+                       - Model is cached after first use
+                    
+                    4. **Memory issues**:
+                       - Base model is optimized for accuracy/speed balance
+                       - For faster processing, you can use "tiny" model
+                    """)
         else:
-            st.error("❌ Transcription failed", icon="🚨")
-            st.error(f"Error details: {transcribed_text}")
-            
-            # Show helpful installation tips
-            with st.expander("🔧 Troubleshooting Tips"):
-                st.markdown("""
-                ### Common Issues and Solutions:
-                
-                1. **OpenAI Whisper not installed**:
-                   ```bash
-                   pip install openai-whisper
-                   ```
-                   - No FFmpeg required!
-                   - Works with WebM, MP3, WAV, and many other formats
-                   - First run downloads base model (~140 MB)
-                
-                2. **Audio too quiet or unclear**:
-                   - Speak clearly and loudly
-                   - Record in a quiet environment
-                   - Check your microphone settings
-                   - Ensure good microphone input levels
-                
-                3. **Slow transcription**:
-                   - First run is slow (model download)
-                   - Subsequent runs are much faster
-                   - Model is cached after first use
-                
-                4. **Memory issues**:
-                   - Base model is optimized for accuracy/speed balance
-                   - For faster processing, you can use "tiny" model
-                """)
-    else:
-        st.error("Error: Could not read audio bytes")
+            st.error("Error: Could not read audio bytes")
+
+with tab2:
+    st.markdown("### ⌨️ Type Your Message")
+    st.markdown("Enter your text below to get a 4-point summary using Groq LLM.")
+    
+    # Text input
+    user_text = st.text_area(
+        "Enter your text here:",
+        placeholder="Type your message or paste text you want summarized...",
+        height=150
+    )
+    
+    if st.button("📝 Get Summary", type="primary"):
+        if user_text.strip():
+            get_summary_from_text(user_text)
+            st.session_state.transcribed_text = user_text  # For display
+        else:
+            st.warning("Please enter some text to summarize.")
 
 # Display chat history
 st.markdown("### 💬 Chat History")
