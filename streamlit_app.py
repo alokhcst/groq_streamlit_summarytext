@@ -80,9 +80,8 @@ with col2:
 
 
 def transcribe_audio(audio_bytes, file_extension='webm'):
-    """Transcribe audio bytes to text using Google Speech Recognition."""
+    """Transcribe audio bytes to text using OpenAI Whisper (works without FFmpeg)."""
     tmp_file_path = None
-    wav_path = None
     
     try:
         # Save audio to temporary file
@@ -90,51 +89,55 @@ def transcribe_audio(audio_bytes, file_extension='webm'):
             tmp_file.write(audio_bytes)
             tmp_file_path = tmp_file.name
         
-        # Convert to WAV if needed using pydub
-        wav_path = tmp_file_path
-        if file_extension != 'wav':
-            try:
-                from pydub import AudioSegment
-                
-                # Load audio and convert to WAV
-                audio = AudioSegment.from_file(tmp_file_path)
-                wav_path = tmp_file_path.replace(f".{file_extension}", ".wav")
-                audio.export(wav_path, format="wav")
-                
-                # Clean up original file
-                if os.path.exists(tmp_file_path):
-                    os.unlink(tmp_file_path)
-            except ImportError:
-                return "Error: pydub is not installed. Please run: pip install pydub"
-            except Exception as conv_error:
-                return f"Error during audio conversion: {str(conv_error)}\nTip: Make sure FFmpeg is installed."
-        
-        # Use SpeechRecognition to transcribe
-        recognizer = sr.Recognizer()
-        with sr.AudioFile(wav_path) as source:
-            # Adjust for ambient noise
-            recognizer.adjust_for_ambient_noise(source, duration=0.5)
-            audio_data = recognizer.record(source)
-        
-        # Transcribe using Google Speech Recognition
-        text = recognizer.recognize_google(audio_data)
-        
-        return text
+        # Use OpenAI Whisper for transcription (works with WebM and many other formats)
+        try:
+            import whisper
+            
+            # Load Whisper model (base model is good balance of speed and accuracy)
+            model = whisper.load_model("base")
+            
+            # Transcribe the audio
+            result = model.transcribe(tmp_file_path)
+            text = result["text"]
+            
+            return text
+            
+        except ImportError:
+            # Fallback to Google Speech Recognition if Whisper not available
+            st.info("Using Google Speech Recognition (install whisper for better results)")
+            
+            # Try to convert to WAV if needed
+            wav_path = tmp_file_path
+            if file_extension != 'wav':
+                try:
+                    from pydub import AudioSegment
+                    audio = AudioSegment.from_file(tmp_file_path)
+                    wav_path = tmp_file_path.replace(f".{file_extension}", ".wav")
+                    audio.export(wav_path, format="wav")
+                    if os.path.exists(tmp_file_path):
+                        os.unlink(tmp_file_path)
+                except Exception as conv_error:
+                    return f"Error during audio conversion: {str(conv_error)}\nTip: Install whisper (pip install openai-whisper) for better WebM support."
+            
+            # Use Google Speech Recognition
+            recognizer = sr.Recognizer()
+            with sr.AudioFile(wav_path) as source:
+                recognizer.adjust_for_ambient_noise(source, duration=0.5)
+                audio_data = recognizer.record(source)
+            
+            text = recognizer.recognize_google(audio_data)
+            return text
         
     except sr.UnknownValueError:
         return "Could not understand audio - audio might be too quiet or unclear"
     except sr.RequestError as e:
         return f"Speech recognition service error: {str(e)}"
-    except FileNotFoundError as e:
-        return f"Audio file not found: {str(e)}"
     except Exception as e:
-        return f"Unexpected error during transcription: {str(e)}"
+        return f"Error during transcription: {str(e)}"
     finally:
-        # Clean up temporary files
+        # Clean up temporary file
         try:
-            if wav_path and os.path.exists(wav_path):
-                os.unlink(wav_path)
-            if tmp_file_path and tmp_file_path != wav_path and os.path.exists(tmp_file_path):
+            if tmp_file_path and os.path.exists(tmp_file_path):
                 os.unlink(tmp_file_path)
         except:
             pass
@@ -244,22 +247,25 @@ if audio_input:
                 st.markdown("""
                 ### Common Issues and Solutions:
                 
-                1. **FFmpeg not installed** (most common issue):
+                1. **OpenAI Whisper not installed** (recommended):
+                   ```bash
+                   pip install openai-whisper
+                   ```
+                   - Works without FFmpeg
+                   - Supports WebM and many audio formats
+                   - First run downloads model (~140 MB)
+                
+                2. **FFmpeg not installed** (only needed for Google Speech Recognition fallback):
                    - Windows: Download from https://ffmpeg.org/download.html or run `choco install ffmpeg`
                    - Add FFmpeg to your system PATH
                    - Restart your terminal after installation
-                
-                2. **pydub not installed**:
-                   ```bash
-                   pip install pydub
-                   ```
                 
                 3. **Audio too quiet or unclear**:
                    - Speak clearly and loudly
                    - Record in a quiet environment
                    - Check your microphone settings
                 
-                4. **Check your internet connection**:
+                4. **Check your internet connection** (for Google Speech Recognition fallback):
                    - Google Speech Recognition requires internet access
                 """)
     else:
